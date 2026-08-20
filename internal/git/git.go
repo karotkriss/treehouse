@@ -214,6 +214,20 @@ func ResetWorktree(worktreePath, branch string) error {
 	return err
 }
 
+// IsWorktreeSafeToReset reports whether ResetWorktree can reset worktreePath to
+// branch without discarding committed work. It is safe only when HEAD is already
+// merged into the exact ref ResetWorktree would move the worktree to, so a slot
+// that is ahead of its base is refused. It resolves that ref the same way
+// ResetWorktree does, so the two never disagree. Callers that reclaim and reset
+// an idle slot use this to fail closed on committed-but-unlanded work.
+func IsWorktreeSafeToReset(worktreePath, branch string) (bool, error) {
+	repoRoot, err := runGit(worktreePath, "rev-parse", "--show-toplevel")
+	if err != nil {
+		repoRoot = worktreePath
+	}
+	return IsHeadMergedIntoRef(worktreePath, branchRef(repoRoot, branch))
+}
+
 func DetachWorktree(worktreePath string) error {
 	_, err := runGit(worktreePath, "checkout", "--detach")
 	return err

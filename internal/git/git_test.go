@@ -209,6 +209,46 @@ func TestIsHeadMergedIntoRefFailsClosedWhenTargetCannotBeVerified(t *testing.T) 
 	}
 }
 
+func TestIsWorktreeSafeToReset(t *testing.T) {
+	base := t.TempDir()
+	repoDir := filepath.Join(base, "repo")
+	wtPath := filepath.Join(base, "worktree")
+
+	mustGit(t, "", "init", "--initial-branch=main", repoDir)
+	mustGit(t, repoDir, "config", "user.email", "test@test.com")
+	mustGit(t, repoDir, "config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(repoDir, "README.md"), []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, repoDir, "add", ".")
+	mustGit(t, repoDir, "commit", "-m", "initial")
+	mustGit(t, repoDir, "worktree", "add", "--detach", wtPath, "main")
+
+	// At base: resetting discards nothing, so it is safe.
+	safe, err := IsWorktreeSafeToReset(wtPath, "main")
+	if err != nil {
+		t.Fatalf("IsWorktreeSafeToReset at base: %v", err)
+	}
+	if !safe {
+		t.Fatal("expected a worktree at base to be safe to reset")
+	}
+
+	// Ahead of base: resetting would discard the commit, so it is not safe.
+	if err := os.WriteFile(filepath.Join(wtPath, "unlanded.txt"), []byte("keep\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, wtPath, "add", "unlanded.txt")
+	mustGit(t, wtPath, "commit", "-m", "unlanded work")
+
+	safe, err = IsWorktreeSafeToReset(wtPath, "main")
+	if err != nil {
+		t.Fatalf("IsWorktreeSafeToReset ahead of base: %v", err)
+	}
+	if safe {
+		t.Fatal("expected a worktree ahead of base to be refused")
+	}
+}
+
 func mustGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...)
