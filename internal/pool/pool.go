@@ -153,12 +153,12 @@ func acquire(repoRoot, poolDir string, poolSize int, postCreate []string, opts a
 			if err != nil || dirty {
 				continue
 			}
-			safe, err := git.IsWorktreeSafeToReset(wt.Path, branch)
+			safe, resetRef, err := git.IsWorktreeSafeToReset(wt.Path, branch)
 			if err != nil || !safe {
 				continue
 			}
-			// Found an available one — reset it
-			if err := git.ResetWorktree(wt.Path, branch); err != nil {
+			// Found an available one. Reset it to the verified commit.
+			if err := git.ResetWorktreeToRef(wt.Path, resetRef); err != nil {
 				continue
 			}
 			if err := markAcquired(&state.Worktrees[i], opts); err != nil {

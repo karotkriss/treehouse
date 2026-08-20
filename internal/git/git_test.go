@@ -225,7 +225,7 @@ func TestIsWorktreeSafeToReset(t *testing.T) {
 	mustGit(t, repoDir, "worktree", "add", "--detach", wtPath, "main")
 
 	// At base: resetting discards nothing, so it is safe.
-	safe, err := IsWorktreeSafeToReset(wtPath, "main")
+	safe, _, err := IsWorktreeSafeToReset(wtPath, "main")
 	if err != nil {
 		t.Fatalf("IsWorktreeSafeToReset at base: %v", err)
 	}
@@ -240,12 +240,56 @@ func TestIsWorktreeSafeToReset(t *testing.T) {
 	mustGit(t, wtPath, "add", "unlanded.txt")
 	mustGit(t, wtPath, "commit", "-m", "unlanded work")
 
-	safe, err = IsWorktreeSafeToReset(wtPath, "main")
+	safe, _, err = IsWorktreeSafeToReset(wtPath, "main")
 	if err != nil {
 		t.Fatalf("IsWorktreeSafeToReset ahead of base: %v", err)
 	}
 	if safe {
 		t.Fatal("expected a worktree ahead of base to be refused")
+	}
+}
+
+func TestResetWorktreeUsesCommitVerifiedBySafetyCheck(t *testing.T) {
+	base := t.TempDir()
+	repoDir := filepath.Join(base, "repo")
+	wtPath := filepath.Join(base, "worktree")
+
+	mustGit(t, "", "init", "--initial-branch=main", repoDir)
+	mustGit(t, repoDir, "config", "user.email", "test@test.com")
+	mustGit(t, repoDir, "config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(repoDir, "README.md"), []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, repoDir, "add", ".")
+	mustGit(t, repoDir, "commit", "-m", "initial")
+	mustGit(t, repoDir, "worktree", "add", "--detach", wtPath, "main")
+
+	safe, resetRef, err := IsWorktreeSafeToReset(wtPath, "main")
+	if err != nil {
+		t.Fatalf("IsWorktreeSafeToReset: %v", err)
+	}
+	if !safe {
+		t.Fatal("expected worktree at base to be safe to reset")
+	}
+
+	if err := os.WriteFile(filepath.Join(repoDir, "advanced.txt"), []byte("new base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, repoDir, "add", "advanced.txt")
+	mustGit(t, repoDir, "commit", "-m", "advance main")
+
+	if err := ResetWorktreeToRef(wtPath, resetRef); err != nil {
+		t.Fatalf("ResetWorktreeToRef: %v", err)
+	}
+	got, err := runGit(wtPath, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatalf("resolve reset HEAD: %v", err)
+	}
+	if got != resetRef {
+		t.Fatalf("reset targeted %s, want verified commit %s", got, resetRef)
+	}
+	if _, err := os.Stat(filepath.Join(wtPath, "README.md")); err != nil {
+		t.Fatalf("expected committed work to remain: %v", err)
 	}
 }
 

@@ -199,33 +199,45 @@ func Fetch(repoRoot string) error {
 }
 
 func ResetWorktree(worktreePath, branch string) error {
-	repoRoot, err := runGit(worktreePath, "rev-parse", "--show-toplevel")
+	ref, err := resolveResetRef(worktreePath, branch)
 	if err != nil {
-		repoRoot = worktreePath
+		return err
 	}
-	ref := branchRef(repoRoot, branch)
+	return ResetWorktreeToRef(worktreePath, ref)
+}
+
+// ResetWorktreeToRef resets worktreePath to an already resolved commit.
+func ResetWorktreeToRef(worktreePath, ref string) error {
 	if _, err := runGit(worktreePath, "checkout", "--detach", "--force", ref); err != nil {
 		return err
 	}
 	if _, err := runGit(worktreePath, "reset", "--hard", ref); err != nil {
 		return err
 	}
-	_, err = runGit(worktreePath, "clean", "-fd")
+	_, err := runGit(worktreePath, "clean", "-fd")
 	return err
 }
 
-// IsWorktreeSafeToReset reports whether ResetWorktree can reset worktreePath to
-// branch without discarding committed work. It is safe only when HEAD is already
-// merged into the exact ref ResetWorktree would move the worktree to, so a slot
-// that is ahead of its base is refused. It resolves that ref the same way
-// ResetWorktree does, so the two never disagree. Callers that reclaim and reset
-// an idle slot use this to fail closed on committed-but-unlanded work.
-func IsWorktreeSafeToReset(worktreePath, branch string) (bool, error) {
+func resolveResetRef(worktreePath, branch string) (string, error) {
 	repoRoot, err := runGit(worktreePath, "rev-parse", "--show-toplevel")
 	if err != nil {
 		repoRoot = worktreePath
 	}
-	return IsHeadMergedIntoRef(worktreePath, branchRef(repoRoot, branch))
+	ref := branchRef(repoRoot, branch)
+	return refCommit(worktreePath, ref)
+}
+
+// IsWorktreeSafeToReset reports whether worktreePath can be reset to branch
+// without discarding committed work and returns the immutable commit it checked.
+// Callers must pass that commit to ResetWorktreeToRef so verification and reset
+// share one target. The check fails closed when the target cannot be resolved.
+func IsWorktreeSafeToReset(worktreePath, branch string) (bool, string, error) {
+	ref, err := resolveResetRef(worktreePath, branch)
+	if err != nil {
+		return false, "", err
+	}
+	safe, err := IsHeadMergedIntoRef(worktreePath, ref)
+	return safe, ref, err
 }
 
 func DetachWorktree(worktreePath string) error {
